@@ -18,9 +18,10 @@
 
 package com.wso2telco.dep.mediator.impl.payment;
 
-import com.wso2telco.dep.mediator.MSISDNConstants;
-import com.wso2telco.dep.mediator.internal.Base64Coder;
-import com.wso2telco.dep.oneapivalidation.exceptions.CustomException;
+import java.io.File;
+import java.util.List;
+import java.util.Map;
+
 import org.apache.axis2.AxisFault;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -28,9 +29,21 @@ import org.apache.synapse.MessageContext;
 import org.apache.synapse.core.axis2.Axis2MessageContext;
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.wso2.carbon.utils.CarbonUtils;
 
-import java.util.List;
-import java.util.Map;
+import com.wso2telco.core.dbutils.exception.BusinessException;
+import com.wso2telco.core.dbutils.fileutils.FileReader;
+import com.wso2telco.dep.mediator.MSISDNConstants;
+import com.wso2telco.dep.mediator.OperatorEndpoint;
+import com.wso2telco.dep.mediator.entity.OparatorEndPointSearchDTO;
+import com.wso2telco.dep.mediator.internal.ApiUtils;
+import com.wso2telco.dep.mediator.internal.Base64Coder;
+import com.wso2telco.dep.mediator.mediationrule.OriginatingCountryCalculatorIDD;
+import com.wso2telco.dep.mediator.util.APIType;
+import com.wso2telco.dep.mediator.util.FileNames;
+import com.wso2telco.dep.oneapivalidation.exceptions.CustomException;
+import com.wso2telco.dep.subscriptionvalidator.exceptions.ValidatorException;
+import com.wso2telco.dep.subscriptionvalidator.util.ValidatorUtils;
 
 /**
  *
@@ -41,6 +54,61 @@ public class PaymentUtil {
 	private static Log log = LogFactory.getLog(PaymentUtil.class);
 
 	
+	public static OperatorEndpoint validateAndGetOperatorEndpoint(PaymentExecutor executor, 
+			OriginatingCountryCalculatorIDD occi, ApiUtils apiUtils, MessageContext context) throws ValidatorException, BusinessException, Exception {
+
+		OperatorEndpoint endpoint = null;
+		JSONObject jsonBody = executor.getJsonBody();
+		String endUserId = jsonBody.getJSONObject("amountReservationTransaction").getString("endUserId");
+		String msisdn = endUserId.substring(5);
+		context.setProperty(MSISDNConstants.USER_MSISDN, msisdn);
+		context.setProperty(MSISDNConstants.MSISDN, endUserId);
+		
+		if (ValidatorUtils.getValidatorForSubscriptionFromMessageContext(context).validate(context)) {
+			OparatorEndPointSearchDTO searchDTO = new OparatorEndPointSearchDTO();
+			searchDTO.setApi(APIType.PAYMENT);
+			searchDTO.setApiName((String) context.getProperty("API_NAME"));
+			searchDTO.setContext(context);
+			searchDTO.setIsredirect(false);
+			searchDTO.setMSISDN(endUserId.replace("tel:", ""));
+			searchDTO.setOperators(executor.getValidoperators(context));
+			searchDTO.setRequestPathURL(executor.getSubResourcePath());
+			endpoint = occi.getOperatorEndpoint(searchDTO);
+		}
+		return endpoint;
+	}
+	
+	@SuppressWarnings("deprecation")
+	public static String formatClientCorrelator(PaymentExecutor executor, ApiUtils apiUtils, String appId, String subscriber, String requestId, String clientCorrelator) {
+		
+		FileReader fileReader = new FileReader();
+        String file = CarbonUtils.getCarbonConfigDirPath() + File.separator + FileNames.MEDIATOR_CONF_FILE.getFileName();
+ 		Map<String, String> mediatorConfMap = fileReader.readPropertyFile(file);
+		String hub_gateway_id = mediatorConfMap.get("hub_gateway_id");
+        log.debug("Hub / Gateway Id : " + hub_gateway_id);
+        
+        JSONObject jsonBody = executor.getJsonBody();
+		if (clientCorrelator == null || clientCorrelator.equals("")) {
+			log.debug("clientCorrelator not provided by application and hub/plugin generating clientCorrelator on behalf of application");
+			String hashString = apiUtils.getHashString(jsonBody.toString());
+			log.debug("hashString : " + hashString);
+			clientCorrelator = hashString + "-" + requestId + ":" + hub_gateway_id + ":" + appId;
+		} else {
+
+			log.debug("clientCorrelator provided by application");
+			clientCorrelator = clientCorrelator + ":" + hub_gateway_id + ":" + appId;
+		}
+		
+		return clientCorrelator;
+	}
+	
+	public static String nullOrTrimmed(String s) {
+		String rv = null;
+		if (s != null && s.trim().length() > 0) {
+			rv = s.trim();
+		}
+		return rv;
+	}
 	
 	public static String storeSubscription(MessageContext context)
 			throws AxisFault {

@@ -48,11 +48,7 @@ public final class ValidationUtils {
 		} catch (UnsupportedEncodingException e) {
 			log.debug("Url MSISDN can not be decoded ");
 		}
-		// This validation assumes that userID should be with the prefix "tel:+" and back end
-		// still does not support with other prefixes for this API.
-		// Therefore below line should be modified in future depending on requirements
-		String payloadMsisdn = jsonBody.getJSONObject("amountTransaction").getString("endUserId")
-					.substring(5);
+		String payloadMsisdn = getPayloadMsisdn(jsonBody);
 		
 		if(urlmsisdn != null){
         	if (urlmsisdn.startsWith(MSISDNConstants.ETEL_1)) {
@@ -78,5 +74,20 @@ public final class ValidationUtils {
             throw new CustomException(MSISDNConstants.SVC0002, "", new String[] { "Two different endUserId provided" });
         }
 
+	}
+	
+	/**
+	 * Extract MSISDN from payload
+	 */
+	private static String getPayloadMsisdn(JSONObject jsonBody) {
+		
+		// This validation assumes that userID should be with the prefix "tel:+" and back end
+		// still does not support with other prefixes for this API.
+		// Therefore below line should be modified in future depending on requirement
+		if(!jsonBody.isNull("amountReservationTransaction")){
+			return jsonBody.getJSONObject("amountReservationTransaction").getString("endUserId").substring(5);
+		} else {
+			return jsonBody.getJSONObject("amountTransaction").getString("endUserId").substring(5);
+		}
 	}
 }

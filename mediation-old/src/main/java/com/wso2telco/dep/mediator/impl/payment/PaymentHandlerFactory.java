@@ -30,7 +30,6 @@ public class PaymentHandlerFactory {
 	public static PaymentHandler createPaymentHandler(String resourceURL, PaymentExecutor executor) {
 
 		PaymentHandler paymentHandler = null;
-		String transactionOperationStatus = null;
 		log.debug("createPaymentHandler -> Json string : " + executor.getJsonBody().toString());
 
 		try {
@@ -60,25 +59,28 @@ public class PaymentHandlerFactory {
 		if (httpMethod.equalsIgnoreCase("post")) {
 
 			if (resourceURL.contains("amountReservation")) {
-
+				JSONObject objJSONObject = executor.getJsonBody();
+				JSONObject objAmountReservationTransaction = (JSONObject) objJSONObject
+						.get("amountReservationTransaction");
+				if (!objAmountReservationTransaction.has("transactionOperationStatus")) {
+					log.debug("createPaymentHandler -> API Type Not found");
+					throw new CustomException("SVC0002", "",
+							new String[] { "Missing mandatory parameter: transactionOperationStatus" });
+				}
+				
 				log.debug("Amount reservation transaction");
 				String parts[] = resourceURL.split("/transactions/");
 				String urlParts[] = parts[1].split("/");
 				log.debug("createPaymentHandler -> Payment url parts : " + urlParts.length);
-
+				
 				if (urlParts.length == 1) {
 
 					log.debug("createPaymentHandler -> Payment API type : Reserve an amount to charge");
 					paymentHandler = new AmountReserveHandler(executor);
 				} else if (urlParts.length == 2) {
 
-					JSONObject objJSONObject = executor.getJsonBody();
-
-					JSONObject objAmountReservationTransaction = (JSONObject) objJSONObject
-							.get("amountReservationTransaction");
-
 					if (objAmountReservationTransaction.get("transactionOperationStatus") != null) {
-
+						
 						transactionOperationStatus = nullOrTrimmed(
 								objAmountReservationTransaction.get("transactionOperationStatus").toString());
 						log.debug("createPaymentHandler -> Transaction operation status" + transactionOperationStatus);
