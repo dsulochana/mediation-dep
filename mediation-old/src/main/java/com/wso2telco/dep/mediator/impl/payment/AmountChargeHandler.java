@@ -38,6 +38,7 @@ import com.wso2telco.dep.oneapivalidation.exceptions.CustomException;
 import com.wso2telco.dep.oneapivalidation.service.IServiceValidate;
 import com.wso2telco.dep.oneapivalidation.service.impl.payment.ValidatePaymentCharge;
 import com.wso2telco.dep.subscriptionvalidator.util.ValidatorUtils;
+import com.wso2telco.dep.validator.handler.utils.HandlerEncriptionUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.synapse.MessageContext;
@@ -47,6 +48,7 @@ import org.json.JSONObject;
 import org.wso2.carbon.utils.CarbonUtils;
 
 import java.io.File;
+import java.net.URLEncoder;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -112,11 +114,19 @@ public class AmountChargeHandler implements PaymentHandler {
         try {
 
             String endUserId = jsonBody.getJSONObject("amountTransaction").getString("endUserId");
-            String msisdn = endUserId.substring(5);
+            if(executor.isUserAnonymization()) {
+                context.setProperty(MSISDNConstants.MASKED_MSISDN, endUserId);
+            	endUserId = HandlerEncriptionUtils.maskUserId(endUserId, false,(String)context.getProperty("USER_MASKING_SECRET_KEY") );
+				// Set Resource Header with original
+            	Object headers = ((Axis2MessageContext) context).getAxis2MessageContext().getProperty(org.apache.axis2.context.MessageContext.TRANSPORT_HEADERS);
+				Map headersMap = (Map) headers;
+				headersMap.put("RESOURCE", "/" + URLEncoder.encode(endUserId, "UTF-8") + "/transactions/amount");
+            }
             //Double chargeamount = Double.parseDouble(jsonBody.getJSONObject("amountTransaction").getJSONObject("paymentAmount").getJSONObject("chargingInformation").getString("amount"));
-
+			String msisdn = endUserId.substring(5);
             context.setProperty(MSISDNConstants.USER_MSISDN, msisdn);
             context.setProperty(MSISDNConstants.MSISDN, endUserId);
+
             //OperatorEndpoint endpoint = null;
 
             if (ValidatorUtils.getValidatorForSubscriptionFromMessageContext(context).validate(context)) {
@@ -148,6 +158,10 @@ public class AmountChargeHandler implements PaymentHandler {
             }
 
             sending_add = endpoint.getEndpointref().getAddress();
+            if(executor.isUserAnonymization()) {
+            	sending_add = sending_add.replace(URLEncoder.encode((String)context.getProperty(MSISDNConstants.MASKED_MSISDN), "UTF-8"), URLEncoder.encode(endUserId, "UTF-8"));
+            }
+            
             if (log.isDebugEnabled()) {
                 log.info("sending endpoint found: " + sending_add + " Request ID: " + UID.getRequestID(context));
             }
@@ -271,16 +285,16 @@ public class AmountChargeHandler implements PaymentHandler {
 			throw new Exception("Method not allowed");
 		}
 
-		if(validatorClass != null){
+		if (validatorClass != null) {
 			Class clazz = Class.forName(validatorClass);
 			validator = (IServiceValidate) clazz.newInstance();
-		}else{
-			validator = new ValidatePaymentCharge();
+		} else {
+			validator = new ValidatePaymentCharge(executor.isUserAnonymization(), (String)context.getProperty("USER_MASKING_SECRET_KEY"));
 		}
 
 		validator.validateUrl(requestPath);
 		validator.validate(jsonBody.toString());
-		ValidationUtils.compareMsisdn(executor.getSubResourcePath(), executor.getJsonBody());
+		ValidationUtils.compareMsisdn(executor.getSubResourcePath(), executor.getJsonBody(), executor.isUserAnonymization(), context);
 		return true;
 	}
 

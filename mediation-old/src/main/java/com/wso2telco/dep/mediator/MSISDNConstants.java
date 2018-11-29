@@ -28,6 +28,15 @@ public final class MSISDNConstants {
     /** The Constant MSISDN. */
     public static final String MSISDN = "MSISDN";
     
+    /** The Constant MSISDN_LIST. */
+    public static final String MSISDN_LIST = "MSISDN_LIST";
+    
+    /** The Constant to Actual MSISDN when request user PCR MSISDN */
+    public static final String MASKED_MSISDN = "MASKED_MSISDN";
+    
+    /** The Constant to Actual MSISDNlist when request multiple user PCR MSISDN */
+    public static final String MASKED_MSISDN_LIST = "MASKED_MSISDN_LIST";
+    
     /** The Constant AGGRIGATOR_ROLE. */
     public static final String AGGRIGATOR_ROLE = "aggregator";
 

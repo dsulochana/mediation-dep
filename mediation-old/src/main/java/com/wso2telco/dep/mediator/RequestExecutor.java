@@ -94,6 +94,8 @@ public abstract class RequestExecutor {
 	/** The str err. */
 	// <TO-DO>
 	private String strErr;
+	
+	private boolean userAnonymization;
 
 	/**
 	 * Gets the str err.
@@ -205,6 +207,22 @@ public abstract class RequestExecutor {
 	}
 
 	/**
+	 *  Get the request uses User Anonymization
+	 * @return
+	 */
+	public boolean isUserAnonymization() {
+		return userAnonymization;
+	}
+
+	/**
+	 * Set the request uses User Anonymization
+	 * @param userAnonymization
+	 */
+	public void setUserAnonymization(boolean userAnonymization) {
+		this.userAnonymization = userAnonymization;
+	}
+
+	/**
 	 * Gets the validoperators.
 	 *
 	 * @return the validoperators
@@ -308,6 +326,9 @@ public abstract class RequestExecutor {
     	subResourcePath = (String) context.getProperty("REST_SUB_REQUEST_PATH");
 		resourceUrl = (String) context.getProperty("REST_FULL_REQUEST_PATH");
 		httpMethod = (String) context.getProperty("HTTP_METHOD");
+		if(context.getProperty("USER_ANONYMIZATION") != null) { 
+			this.userAnonymization = Boolean.valueOf((String)context.getProperty("USER_ANONYMIZATION"));
+		}
 
 
 		/*String jsonPayloadToString = JsonUtil

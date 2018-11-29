@@ -16,17 +16,22 @@
 
 package com.wso2telco.dep.mediator.util;
 
+import com.wso2telco.core.dbutils.fileutils.FileReader;
 import com.wso2telco.dep.mediator.MSISDNConstants;
 import com.wso2telco.dep.oneapivalidation.exceptions.CustomException;
+import com.wso2telco.dep.validator.handler.utils.HandlerEncriptionUtils;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.synapse.MessageContext;
+import org.json.JSONObject;
+import org.wso2.carbon.utils.CarbonUtils;
 
+import java.io.File;
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
 import java.util.ArrayList;
 import java.util.List;
-
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-import org.json.JSONObject;
+import java.util.Map;
 
 /**
  *@author WSO2telco
@@ -41,21 +46,32 @@ public final class ValidationUtils {
 	 * This method extracts userId from payload and resource url and passed to
 	 * validate whether they are same
 	 */
-	public static void compareMsisdn(String resourcePath, JSONObject jsonBody) {
-		String urlmsisdn = null;
+	public static void compareMsisdn(String resourcePath, JSONObject jsonBody, boolean userAnonymization, MessageContext context) {
+		String urlmsisdn = resourcePath.substring(1, resourcePath.indexOf("transactions") - 1);
 		try {
-			urlmsisdn = URLDecoder.decode(resourcePath.substring(1,
-					resourcePath.indexOf("transactions") - 1), "UTF-8");
-
+			if(userAnonymization) {
+				urlmsisdn = urlmsisdn = HandlerEncriptionUtils.maskUserId(URLDecoder.decode(urlmsisdn, "UTF-8"), false, (String)context.getProperty("USER_MASKING_SECRET_KEY"));
+			}
+			urlmsisdn = URLDecoder.decode(urlmsisdn, "UTF-8");
 		} catch (UnsupportedEncodingException e) {
+			log.debug("Url MSISDN can not be decoded ");
+		} catch (Exception e) {
 			log.debug("Url MSISDN can not be decoded ");
 		}
 		// This validation assumes that userID should be with the prefix "tel:+" and back end
 		// still does not support with other prefixes for this API.
 		// Therefore below line should be modified in future depending on requirements
-		String payloadMsisdn = jsonBody.getJSONObject("amountTransaction").getString("endUserId")
-					.substring(5);
-		
+		String payloadMsisdn = jsonBody.getJSONObject("amountTransaction").getString("endUserId");
+		if (userAnonymization) {
+			try {
+				payloadMsisdn = HandlerEncriptionUtils.maskUserId(payloadMsisdn, false, (String)context.getProperty("USER_MASKING_SECRET_KEY"));
+			} catch (Exception e) {
+				log.debug("Error while decoeing user ID");
+			}
+		}
+
+		payloadMsisdn = payloadMsisdn.substring(5);
+
 		if(urlmsisdn != null){
 			urlmsisdn = getMsisdnNumber(urlmsisdn);
         } else {
@@ -71,7 +87,7 @@ public final class ValidationUtils {
         }
 
 	}
-	
+
 
     /**
      * Returns array of MSISDNs without "tel:+" prefix
@@ -83,7 +99,7 @@ public final class ValidationUtils {
 		}
 		return userMsisdn.toArray(new String[userMsisdn.size()]);
 	}
-	
+
 	/**
      * Returns array of MSISDNs without "tel:" prefix
      */
@@ -94,7 +110,7 @@ public final class ValidationUtils {
 		}
 		return qurMsisdn.toArray(new String[qurMsisdn.size()]);
 	}
-	
+
 	/**
 	 * Returns MSISDN number without prefix
 	 */
@@ -112,7 +128,7 @@ public final class ValidationUtils {
         }
 		return msisdn;
 	}
-	
+
 	/**
 	 * Returns MSISDN number only with "+" prefix
 	 */

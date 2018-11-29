@@ -17,22 +17,6 @@
  */
 package com.wso2telco.dep.mediator.impl.smsmessaging;
 
-import java.io.UnsupportedEncodingException;
-import java.net.URLEncoder;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
-import org.apache.axis2.AxisFault;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-import org.apache.synapse.MessageContext;
-import org.apache.synapse.core.axis2.Axis2MessageContext;
-import org.json.JSONArray;
-import org.json.JSONObject;
-
 import com.google.common.base.CharMatcher;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -55,7 +39,7 @@ import com.wso2telco.dep.oneapivalidation.service.IServiceValidate;
 import com.wso2telco.dep.oneapivalidation.service.impl.smsmessaging.ValidateSendSms;
 import com.wso2telco.dep.operatorservice.model.OperatorApplicationDTO;
 import com.wso2telco.dep.subscriptionvalidator.exceptions.ValidatorException;
-import com.wso2telco.dep.subscriptionvalidator.util.ValidatorUtils;
+import com.wso2telco.dep.validator.handler.utils.HandlerEncriptionUtils;
 import org.apache.axis2.AxisFault;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -63,8 +47,7 @@ import org.apache.synapse.MessageContext;
 import org.apache.synapse.core.axis2.Axis2MessageContext;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.wso2.carbon.utils.CarbonUtils;
-import java.io.File;
+
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.util.ArrayList;
@@ -143,7 +126,6 @@ public class SendSMSHandler extends AbstractHandler{
 		subsrequest.getOutboundSMSMessageRequest().getOutboundTextMessage().setMessage(utf8String);
 		// ========================UNICODE PATCH
 
-
 		if (!subscriptionValidate(context)) {
 			throw new CustomException("SVC0001", "", new String[] { "Subscription Validation Unsuccessful" });
 		}
@@ -153,8 +135,10 @@ public class SendSMSHandler extends AbstractHandler{
 		if (!jsonBody.getJSONObject("outboundSMSMessageRequest").isNull("address")) {
 
             JSONArray addressArray = jsonBody.getJSONObject("outboundSMSMessageRequest").getJSONArray("address");
-            
             String firstAddress = addressArray.getString(0);
+            if (executor.isUserAnonymization() && HandlerEncriptionUtils.isMaskedUserId(firstAddress)) {
+            	firstAddress = HandlerEncriptionUtils.maskUserId(firstAddress, false, (String)context.getProperty("USER_MASKING_SECRET_KEY"));
+            }
             
             if(firstAddress.contains("tel:+")){
         		
@@ -162,7 +146,7 @@ public class SendSMSHandler extends AbstractHandler{
         	} else if(firstAddress.contains("tel:")){
         		
         		firstAddress = firstAddress.replace("tel:", "");
-        	}else if(firstAddress.contains("+")){
+        	} else if(firstAddress.contains("+")){
         		
         		firstAddress = firstAddress.replace("+", "");
         	}
@@ -172,6 +156,9 @@ public class SendSMSHandler extends AbstractHandler{
     		for (int a = 0; a < addressArray.length(); a++) {
             	
             	String address = addressArray.getString(a);
+            	if (executor.isUserAnonymization() && HandlerEncriptionUtils.isMaskedUserId(address)) {
+					address = HandlerEncriptionUtils.maskUserId(address, false, (String)context.getProperty("USER_MASKING_SECRET_KEY"));
+                }
             	
             	if(address.contains("tel:+")){
             		
@@ -192,10 +179,14 @@ public class SendSMSHandler extends AbstractHandler{
             	}
             }
         }
-
+		
+		String firstAddress = jsonBody.getJSONObject("outboundSMSMessageRequest").getJSONArray("address").getString(0);
+		// Get resolved MSISDN if request used User Anonymization
+		if (executor.isUserAnonymization() && HandlerEncriptionUtils.isMaskedUserId(firstAddress)) {
+			firstAddress = HandlerEncriptionUtils.maskUserId(firstAddress, false, (String)context.getProperty("USER_MASKING_SECRET_KEY"));
+		}
 		// taking the operator endpoint with first address, since this is for same operator
-		OperatorEndpoint operatorEndpoint = getEndpoint(jsonBody.getJSONObject
-				("outboundSMSMessageRequest").getJSONArray("address").getString(0), context, API_TYPE);
+		OperatorEndpoint operatorEndpoint = getEndpoint(firstAddress, context, API_TYPE);
 
 		String sending_add = operatorEndpoint.getEndpointref().getAddress();
 		log.info("sending endpoint found: " + sending_add + " Request ID: " + UID.getRequestID(context));
@@ -244,13 +235,29 @@ public class SendSMSHandler extends AbstractHandler{
 		JSONArray addressElement = jsonBody.getJSONObject("outboundSMSMessageRequest").getJSONArray("address");
 		String[] addresses = new String[addressElement.length()];
 		String addressList = "";
+		String maskedAddressList = "";
+		Map<String, String> maskedMsisdnMap = new HashMap<String, String>();
 		for (int i = 0 ; i < addressElement.length() ; i ++) {
 			addresses[i] = addressElement.getString(i);
+			if (executor.isUserAnonymization()) {
+				maskedAddressList += (addresses[i] + ",");
+				String resolvedAddress = addressElement.getString(i);
+				// Address List may contains unmasked user Ids too for build address list
+				if (HandlerEncriptionUtils.isMaskedUserId(addressElement.getString(i))) {
+					resolvedAddress = HandlerEncriptionUtils.maskUserId(addressElement.getString(i), false, (String)context.getProperty("USER_MASKING_SECRET_KEY"));
+				}
+				// Update map<masked-msisdn, actual msisdn>
+				maskedMsisdnMap.put(addresses[i], resolvedAddress);
+				addresses[i] = resolvedAddress;
+			}
 			addressList += (addresses[i] + ",");
 		}
 		context.setProperty("ADDRESSES", addresses);
-		context.setProperty("MSISDN_LIST", addressList.substring(0, addressList.length() - 1));
-
+		context.setProperty(MSISDNConstants.MSISDN_LIST, addressList.substring(0, addressList.length() - 1));
+		if (executor.isUserAnonymization()) {
+			context.setProperty(MSISDNConstants.MASKED_MSISDN_LIST, maskedAddressList.substring(0, maskedAddressList.length() - 1));
+			context.setProperty("MASKED_MSISDN_MAP", maskedMsisdnMap);
+		}
 		context.setProperty("RESPONSE_DELIVERY_INFO_RESOURCE_URL", getProperty("hubGateway")+ executor.getApiContext()+ "/" + executor.getApiVersion() + executor.getSubResourcePath()+ "/" +requestid + "/deliveryInfos");
 
 		context.setProperty("OPERATOR_NAME", operatorEndpoint.getOperator());
@@ -303,7 +310,7 @@ public class SendSMSHandler extends AbstractHandler{
 
 		context.setProperty(DataPublisherConstants.OPERATION_TYPE, 200);
 
-		IServiceValidate validator = new ValidateSendSms();
+		IServiceValidate validator = new ValidateSendSms(executor.isUserAnonymization(), (String)context.getProperty("USER_MASKING_SECRET_KEY"));
 		validator.validateUrl(requestPath);
 		validator.validate(jsonBody.toString());
 
